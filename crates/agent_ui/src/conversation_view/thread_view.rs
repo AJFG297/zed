@@ -324,6 +324,7 @@ pub struct ThreadView {
     pub can_fast_track_queue: bool,
     pub hovered_edited_file_buttons: Option<usize>,
     pub in_flight_prompt: Option<Vec<acp::ContentBlock>>,
+    pub plan_mode_enabled_for_next_message: bool,
     pub _subscriptions: Vec<Subscription>,
     pub message_editor: Entity<MessageEditor>,
     pub add_context_menu_handle: PopoverMenuHandle<ContextMenu>,
@@ -359,6 +360,23 @@ pub struct TurnFields {
     pub turn_generation: usize,
     pub turn_started_at: Option<Instant>,
     pub turn_tokens: Option<u64>,
+}
+
+fn prepend_plan_command(contents: &mut Vec<acp::ContentBlock>) {
+    const PLAN_COMMAND: &str = "/plan";
+
+    if let Some(acp::ContentBlock::Text(text_content)) = contents.first_mut() {
+        if text_content.text.trim_start().starts_with(PLAN_COMMAND) {
+            return;
+        }
+
+        text_content.text = format!("{PLAN_COMMAND}\n\n{}", text_content.text);
+    } else {
+        contents.insert(
+            0,
+            acp::ContentBlock::Text(acp::TextContent::new(PLAN_COMMAND)),
+        );
+    }
 }
 
 impl ThreadView {
@@ -596,6 +614,7 @@ impl ThreadView {
             can_fast_track_queue: false,
             hovered_edited_file_buttons: None,
             in_flight_prompt: None,
+            plan_mode_enabled_for_next_message: false,
             message_editor,
             add_context_menu_handle: PopoverMenuHandle::default(),
             thinking_effort_menu_handle: PopoverMenuHandle::default(),
@@ -722,7 +741,17 @@ impl ThreadView {
                 .get(thread.profile())
                 .is_some_and(|profile| profile.tools.is_empty())
         });
-        message_editor.update(cx, |message_editor, cx| message_editor.contents(expand, cx))
+        let plan_mode_enabled = self.plan_mode_enabled_for_next_message;
+        let contents_task =
+            message_editor.update(cx, |message_editor, cx| message_editor.contents(expand, cx));
+
+        cx.background_spawn(async move {
+            let (mut contents, tracked_buffers) = contents_task.await?;
+            if plan_mode_enabled && !contents.is_empty() {
+                prepend_plan_command(&mut contents);
+            }
+            anyhow::Ok((contents, tracked_buffers))
+        })
     }
 
     pub fn current_model_id(&self, cx: &App) -> Option<String> {
@@ -3362,6 +3391,7 @@ impl ThreadView {
                                     .flex_wrap()
                                     .gap_1()
                                     .children(self.render_token_usage(cx))
+                                    .child(self.render_plan_mode_button(cx))
                                     .children(self.profile_selector.clone())
                                     .map(|this| match self.config_options_view.clone() {
                                         Some(config_view) => this.child(config_view),
@@ -4031,6 +4061,46 @@ impl ThreadView {
                 y: px(-2.0),
             })
             .anchor(gpui::Anchor::BottomLeft)
+    }
+
+    fn toggle_plan_mode_for_next_message(&mut self, cx: &mut Context<Self>) {
+        self.plan_mode_enabled_for_next_message = !self.plan_mode_enabled_for_next_message;
+        cx.notify();
+    }
+
+    fn render_plan_mode_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let session_capabilities = self.session_capabilities.read();
+        let has_plan_command = session_capabilities
+            .available_commands()
+            .iter()
+            .any(|command| command.name == "plan");
+        drop(session_capabilities);
+
+        if !has_plan_command {
+            return div().into_any_element();
+        }
+
+        let disabled = self.is_loading_contents;
+        let enabled = self.plan_mode_enabled_for_next_message;
+
+        Button::new("plan-mode", "Plan")
+            .label_size(LabelSize::Small)
+            .style(if enabled {
+                ButtonStyle::Tinted(TintColor::Accent)
+            } else {
+                ButtonStyle::Subtle
+            })
+            .start_icon(Icon::new(IconName::ListTodo))
+            .tooltip(Tooltip::text(if enabled {
+                "Plan mode will be requested with your next message"
+            } else {
+                "Request plan mode with your next message"
+            }))
+            .when(disabled, |button| button.disabled(true))
+            .on_click(cx.listener(|this, _, _window, cx| {
+                this.toggle_plan_mode_for_next_message(cx);
+            }))
+            .into_any_element()
     }
 
     fn render_send_button(&self, cx: &mut Context<Self>) -> AnyElement {
