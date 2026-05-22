@@ -22643,6 +22643,7 @@ dependencies = [
  "zed-reqwest",
  "zed_actions",
  "zed_env_vars",
+ "zepi_agent_panel",
  "zlog",
  "zlog_settings",
  "ztracing",
@@ -22851,6 +22852,24 @@ name = "zeno"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
+
+[[package]]
+name = "zepi_agent_panel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel 2.5.0",
+ "editor",
+ "gpui",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "settings",
+ "terminal_view",
+ "theme_settings",
+ "ui",
+ "workspace",
+]
 
 [[package]]
 name = "zerocopy"

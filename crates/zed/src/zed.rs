@@ -5456,6 +5456,7 @@ mod tests {
             project_panel::init(cx);
             outline_panel::init(cx);
             terminal_view::init(cx);
+            zepi_agent_panel::init(cx);
             copilot_chat::init(
                 app_state.fs.clone(),
                 app_state.client.http_client(),
